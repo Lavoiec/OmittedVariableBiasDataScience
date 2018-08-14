@@ -1,0 +1,173 @@
+---
+title: "Omitted Variable Bias"
+author: "Chris Lavoie"
+date: "August 9, 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Algebra Introduction
+
+Suppose we have a linear relationship between y, and 4 independent variables, x1, x2, x3 and x4
+
+
+$$x_1 = \begin{bmatrix} x_{11}\\
+x_{12}\\
+.\\
+.\\
+x_{1n}
+\end{bmatrix},
+x_2 = \begin{bmatrix} x_{21}\\
+x_{22}\\
+.\\
+.\\
+x_{2n}
+\end{bmatrix},
+x_3 = \begin{bmatrix} x_{31}\\
+x_{32}\\
+.\\
+.\\
+x_{3n}
+\end{bmatrix},
+x_4 = \begin{bmatrix} x_{41}\\
+x_{42}\\
+.\\
+.\\
+x_{4n}
+\end{bmatrix}$$
+  
+And we are trying to estimate y.
+$$y = \begin{bmatrix}
+  y_1\\
+  y_2\\
+  .\\
+  .\\
+  y_n
+  \end{bmatrix}$$
+  
+We know we can estimate this with the equation $\hat{y}=X\hat{\beta} + \hat{u}$. 
+
+It would look a little like this:
+
+$$\hat{y} = \begin{bmatrix} 
+1 & x_{11} & x_{21} & x_{31} & x_{41}\\
+1 & x_{21} & x_{22} & x_{32} & x_{42}\\
+. & . & . & .\\
+1 & x_{n1} & x_{n2} & x_{n3} & x_{n4}
+\end{bmatrix}
+\begin{bmatrix}
+\hat{\beta_0}\\
+\hat{\beta_1}\\
+\hat{\beta_2}\\
+\hat{\beta_3}\\
+\hat{\beta_4}\\
+\end{bmatrix} +
+\begin{bmatrix} \hat{u_1}\\
+\hat{u_2}\\
+.\\
+\hat{u_n}\\
+\end{bmatrix}$$
+
+We also know we can get the Beta estimator through the equation $\hat{\beta} = (X'X)^{-1}X'y$
+
+How do we know whether or not a regression estimator is biased? Well let's do a little experiment!
+
+Suppose the true value of the output $y$ is $y_i = 1 + 3x_1 + 2x_2 + 0x_3 + x_4$, with some additional noise.
+Suppose also that $x_1, x_2, x_3$ are normally distributed, but $x_4 = 2x_1 + x_2$ with a normally distributed random component.
+
+What happens when we run a linear regression on all our X's?
+
+
+```{r setup_experiment}
+
+
+x1 <- rnorm(n = 1000, mean=0, sd=1)
+x2 <- rnorm(n=1000, mean=2, sd=2)
+x3 <- rnorm(n=1000, mean=1, sd=3)
+x4 <- 2*x1 + x2 + rnorm(n=1000, mean=0, sd=1) 
+y <- 3*x1 + 2*x2 + x4 + 1 + rnorm(n=1000, mean=0, sd=1)
+X <- data.frame(1,x1, x2, x3, x4)
+colnames(X) <- c("x0", "x1", "x2", "x3", "x4")
+
+find_beta_hat <- function(X, y) {
+  # Applying the beta hat formula specified above
+  X <- as.matrix(X)
+  squared_X <- t(X)%*%X
+  # Calculates the inverse of squared_X
+  term_1 <- solve(squared_X)
+  term_2 <- t(X)%*%y
+  beta_hat <- term_1 %*% term_2
+}
+
+beta_hat <- find_beta_hat(X,y)
+
+beta_hat
+```
+
+Whoah cool! We get very close to the actual estimates. (Note: The reason why they arne't exactly on is because of the random noise we added.)
+
+Keep in mind a couple of things
+1. We have data for every variable that impacts y
+2. Every variable was placed in the regression.
+
+R has a much more comprehensive Linear Regression solver, so let's use that to check our work.
+```{r}
+data = data.frame(y, X)
+summary(lm(y ~ x1 + x2 + x3 + x4, data=data))
+```
+
+We were able to verify our answers, and get significance estimates! As expected, $x_1, x_2$ and $x_4$ are all statistically significant and $x_3$, which is not at all a factor in y, does not pass the significance test.
+
+Obviously at this point, there are no omitted variables. But let's get technical.
+
+## Omitted Variable Bias
+I'll be following mostly off of [this wikipedia page](https://en.wikipedia.org/wiki/Omitted-variable_bias) for this section
+Let's define two conditions
+1. The omitted variable is a determinant in y
+2. The omitted variable is correlated with one of the explanatory variables
+
+In our case, $x_4$ is a determinant of y (it's explicitly in the equation for y), and it is also correlated with both $x_1$ and $x_2$.
+
+```{r}
+par(mfrow=c(1,3))
+plot(x4,x1, main="x1 against x4")
+plot(x4,x2, main="x2 against x4")
+plot(x4,x3, main="x3 against x4")
+
+```
+
+So what happens when we omit $x_4$ from our regression? (We'll use the lm() function for this)
+```{r}
+summary(lm(y ~ x1 + x2 + x3, data=data))
+```
+
+Both the estimates of $x_1$ and $x_2$ were revised upward! By omitting one of the independent variables that was correlated with the others, we now have inaccurate estimates of $\hat{\beta_1}$ and $\hat{\beta_2}$
+
+## Omitted Variable Bias: The Algebra
+
+First, the statistical term for bias in an estimator.
+An estimator if biased if $E[\hat{\beta}|X] \neq \beta$. 
+
+Let's rewrite the Linear Equation form as $y_i  = x_i\beta + z_i\delta + u_i$
+Recall that $\hat{\beta} = (X'X)^{-1}X'y$
+If we substitute y for $X\beta + Z\delta + U$
+
+$$\hat{\beta} = (X'X)^{-1}X'(X\beta + Z\delta + U)\\
+\hat{\beta} = ((X'X)^{-1}X'X)\beta + (X'X)^{-1}X'Z\delta + (X'X)^{-1}X'U\\
+\hat{\beta} = \beta + (X'X)^{-1}X'Z\delta + (X'X)^{-1}X'U$$
+
+If we take the expected value of $\hat{\beta}$ conditional on $X$...
+$$E[\hat{\beta}|X] = E[\beta|X] + (X'X)^{-1}E[X'Z|X]\delta + (X'X)^{-1}X'E[U|X]$$
+$$E[\hat{\beta}|X] = \beta + (X'X)^{-1}E[X'Z|X]\delta + 0$$
+If $\delta=0$ (It is not a predictor of Y), the second term will reduce to zero, and we will have $E[\hat{\beta}|X] = \beta$, which is an unbiased estimator. If Z is uncorrelated with X, it will also reduce to zero!
+
+## Implications
+
+
+
